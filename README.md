@@ -1,9 +1,10 @@
 # WiFi-Radar — human-sensing radar dashboard
 
-A single-file browser dashboard styled like the viral "your WiFi can see through walls" clips: a sweeping Doppler radar, per-target detection cards, and a live CSI-style waveform. It runs in two modes.
+A browser dashboard styled like the viral "your WiFi can see through walls" clips: a sweeping Doppler radar, per-target cards, and a live CSI waveform. Switch modes with the **Sim / Camera / CSI** buttons in the header.
 
-- 🟢 **LIVE** — your **webcam** + an in-browser person detector ([TensorFlow.js COCO-SSD](https://github.com/tensorflow/tfjs-models/tree/master/coco-ssd)) drive the radar with **real people** it sees. The video **never leaves your browser** — no upload, no server. This is honest computer vision, *not* WiFi-through-wall.
-- 🟠 **SIM** — a synthetic fallback (used if you deny the camera): a 4-room flat with a router and signal rays crossing walls, plus random-walking agents. This is the "WiFi sees through walls" fantasy, clearly labelled as fake.
+- 🟢 **CAMERA** — your **webcam** + an in-browser person detector ([TensorFlow.js COCO-SSD](https://github.com/tensorflow/tfjs-models/tree/master/coco-ssd)) drive the radar with **real people** it sees. The video **never leaves your browser**. Honest computer vision, *not* WiFi-through-wall.
+- 🟠 **SIM** — a synthetic fallback: a 4-room flat with a router and signal rays crossing walls, plus random-walking agents. The "WiFi sees through walls" fantasy, clearly labelled fake.
+- 🔵 **CSI** — the real thing: a **real ESP32 streaming WiFi Channel-State-Information** over a WebSocket (`csi_bridge.py`) drives an honest **presence + motion-magnitude** readout. One antenna = no position, so it never plots a fake location. Runs in **mock mode with no hardware** so you can see the pipeline today.
 
 > ▶ **Live demo:** runs on GitHub Pages — link in the repo's *About* sidebar. Click **Allow** when it asks for the camera, then walk around in frame.
 
@@ -16,6 +17,19 @@ python -m http.server 8077   # → http://127.0.0.1:8077
 ```
 
 The camera needs a secure context — `localhost` and the GitHub Pages `https://` URL both qualify (a raw `file://` open won't get camera access, and falls back to SIM).
+
+## CSI mode — real ESP32 (optional)
+
+CSI mode reads real WiFi Channel-State-Information from an **ESP32** and streams a motion/presence signal to the dashboard over a local WebSocket. It runs in **mock mode with no hardware** so you can try the whole pipeline now.
+
+```bash
+pip install websockets          # + pyserial only for a real board
+python csi_bridge.py            # MOCK: synthesises CSI, ws://127.0.0.1:8765
+# python csi_bridge.py --port COM5      # real ESP32 (Windows)
+# python csi_bridge.py --port /dev/ttyUSB0   # Linux/Mac
+```
+
+Then serve the dashboard from `localhost` (CSI mode needs `ws://localhost`, which https Pages blocks) and click **CSI**. For a real board, flash the `csi_recv_router` example from [espressif/esp-csi](https://github.com/espressif/esp-csi); `csi_bridge.py` parses its serial CSV, computes an amplitude-variance motion score, and emits `{"present":…, "motion":0–1, "sub":[…]}`. **Honest by design:** one ESP32 = one antenna = *presence + motion magnitude*, never a position. See [`csi_bridge.py`](csi_bridge.py) and the ESP32-CSI notes in the project wiki/issues.
 
 ## What's on screen
 

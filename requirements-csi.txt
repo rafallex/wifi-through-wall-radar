@@ -1,0 +1,5 @@
+# Dependencies for the ESP32 WiFi-CSI bridge (csi_bridge.py).
+# Mock mode (no hardware) only needs websockets.
+websockets>=12.0
+# Only needed for a real ESP32 board (csi_bridge.py --port COMx):
+pyserial>=3.5
