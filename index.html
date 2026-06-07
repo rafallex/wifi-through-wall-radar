@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiFi-Radar · Through-Wall Human Sensing</title>
+<style>
+  :root{
+    --bg:#04080a; --panel:#070e12; --line:#0e2128; --grid:#0b1a1f;
+    --cyan:#29f3c3; --green:#37e06a; --amber:#ffb454; --red:#ff5a6a;
+    --txt:#7fe9cf; --dim:#3f6f68; --white:#d7fff4;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--txt);
+    font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    overflow:hidden; letter-spacing:.4px;
+    background-image:radial-gradient(circle at 30% 0%,#0a1c1f 0,transparent 55%),
+                     radial-gradient(circle at 90% 100%,#0a181f 0,transparent 50%);
+  }
+  /* scanlines */
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 1px,transparent 1px 3px);
+    mix-blend-mode:multiply;opacity:.5}
+  .app{height:100vh;display:flex;flex-direction:column;padding:14px;gap:12px}
+  /* header */
+  header{display:flex;align-items:center;gap:16px;border:1px solid var(--line);
+    background:linear-gradient(180deg,#08151a,#050c0f);padding:10px 16px;border-radius:8px}
+  .logo{font-weight:700;color:var(--white);font-size:19px;text-shadow:0 0 14px var(--cyan)}
+  .logo b{color:var(--cyan)}
+  .sub{color:var(--dim);font-size:11px;text-transform:uppercase}
+  .badge{font-size:10px;border:1px solid var(--amber);color:var(--amber);
+    padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:1px}
+  .spacer{flex:1}
+  .live{display:flex;align-items:center;gap:7px;color:var(--red);font-size:12px;font-weight:700}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red);animation:blink 1.1s infinite}
+  @keyframes blink{50%{opacity:.25}}
+  .clock{color:var(--white);font-size:13px;min-width:92px;text-align:right}
+  /* grid */
+  main{flex:1;display:grid;grid-template-columns:1.25fr 1fr 0.95fr;gap:12px;min-height:0}
+  .panel{border:1px solid var(--line);background:var(--panel);border-radius:8px;
+    display:flex;flex-direction:column;min-height:0;position:relative;overflow:hidden}
+  .panel::before{content:"";position:absolute;inset:0;pointer-events:none;
+    box-shadow:inset 0 0 60px rgba(41,243,195,.05)}
+  .ph{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;
+    border-bottom:1px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--cyan)}
+  .ph .tag{color:var(--dim)}
+  .pb{flex:1;position:relative;min-height:0}
+  canvas{display:block;width:100%;height:100%}
+  /* detections */
+  .stats{padding:12px;display:flex;flex-direction:column;gap:10px;height:100%}
+  .big{display:flex;align-items:baseline;gap:10px}
+  .big .n{font-size:46px;font-weight:700;color:var(--white);line-height:1;text-shadow:0 0 18px var(--green)}
+  .big .l{color:var(--dim);font-size:11px;text-transform:uppercase}
+  .targets{display:flex;flex-direction:column;gap:7px;overflow:auto;flex:1}
+  .t{border:1px solid var(--line);border-left:3px solid var(--green);border-radius:5px;
+    padding:7px 9px;background:#06120f;font-size:11px}
+  .t .top{display:flex;justify-content:space-between;color:var(--white);font-weight:700}
+  .t .row{display:flex;justify-content:space-between;color:var(--dim);margin-top:3px}
+  .t .row b{color:var(--txt);font-weight:400}
+  .t.moving{border-left-color:var(--amber)}
+  .t.moving .top span:last-child{color:var(--amber)}
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .m{border:1px solid var(--line);border-radius:5px;padding:7px 9px;background:#06120f}
+  .m .l{color:var(--dim);font-size:9px;text-transform:uppercase}
+  .m .v{color:var(--white);font-size:16px;margin-top:2px}
+  .wave{height:74px;border:1px solid var(--line);border-radius:5px;background:#05100d;position:relative}
+  .wave .cap{position:absolute;top:4px;left:7px;font-size:9px;color:var(--dim);z-index:2;text-transform:uppercase}
+  /* ticker */
+  footer{border:1px solid var(--line);background:#050c0f;border-radius:8px;padding:7px 14px;
+    font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden}
+  footer span{display:inline-block;animation:scroll 32s linear infinite;padding-left:100%}
+  @keyframes scroll{to{transform:translateX(-100%)}}
+  b.c{color:var(--cyan)} b.g{color:var(--green)} b.a{color:var(--amber)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo"><b>◢</b> WIFI&#8209;<b>RADAR</b></div>
+    <div class="sub">Through&#8209;Wall Human Sensing · CSI Engine</div>
+    <span class="badge">Simulation</span>
+    <div class="spacer"></div>
+    <div class="live"><span class="dot"></span>LIVE</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="ph"><span>Floorplan · Reflection Map</span><span class="tag" id="fpTag">2.4GHz · ch 6</span></div>
+      <div class="pb"><canvas id="floor"></canvas></div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><span>Doppler Radar</span><span class="tag">range 9.0 m</span></div>
+      <div class="pb"><canvas id="radar"></canvas></div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><span>Detections</span><span class="tag" id="upd">live</span></div>
+      <div class="stats">
+        <div class="big"><span class="n" id="count">0</span><span class="l">humans<br>detected</span></div>
+        <div class="targets" id="targets"></div>
+        <div class="wave"><span class="cap">CSI amplitude · subcarrier 26</span><canvas id="csi"></canvas></div>
+        <div class="metrics">
+          <div class="m"><div class="l">RSSI</div><div class="v" id="rssi">-42 dBm</div></div>
+          <div class="m"><div class="l">Subcarriers</div><div class="v">52</div></div>
+          <div class="m"><div class="l">Motion idx</div><div class="v" id="motion">0.00</div></div>
+          <div class="m"><div class="l">Packets/s</div><div class="v" id="pps">0</div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer><span id="ticker"></span></footer>
+</div>
+
+<script>
+"use strict";
+// ---------- helpers ----------
+const $=id=>document.getElementById(id);
+const TAU=Math.PI*2, rand=(a,b)=>a+Math.random()*(b-a), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function fit(cv){const r=cv.parentElement.getBoundingClientRect(),d=window.devicePixelRatio||1;
+  cv.width=r.width*d; cv.height=r.height*d; const c=cv.getContext('2d'); c.setTransform(d,0,0,d,0,0); return [c,r.width,r.height];}
+
+// ---------- world (a small apartment, meters) ----------
+const W=9, H=8;                       // floor size in meters
+const ROUTER={x:1.1,y:1.0};           // router location
+// rooms as walls (line segments) — a 4-room flat
+const WALLS=[
+  // outer
+  [0,0,W,0],[W,0,W,H],[W,H,0,H],[0,H,0,0],
+  // vertical divider with a doorway gap
+  [4.6,0,4.6,2.6],[4.6,3.7,4.6,H],
+  // horizontal divider with doorway
+  [0,4.4,2.0,4.4],[3.0,4.4,4.6,4.4],
+  [4.6,4.4,6.6,4.4],[7.6,4.4,W,4.4],
+];
+const ROOMS=[
+  {n:"Living Rm",x:0.2,y:0.2,w:4.2,h:4.0},
+  {n:"Kitchen",  x:4.8,y:0.2,w:4.0,h:4.0},
+  {n:"Bedroom",  x:0.2,y:4.6,w:4.2,h:3.2},
+  {n:"Office",   x:4.8,y:4.6,w:4.0,h:3.2},
+];
+function roomAt(x,y){for(const r of ROOMS){if(x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h)return r.n;}return "Hallway";}
+
+// ---------- simulated humans ----------
+function waypoint(){return {x:rand(.6,W-.6), y:rand(.6,H-.6)};}
+function makeHuman(i){const p=waypoint();return{
+  id:"H"+String(i+1).padStart(2,'0'), x:p.x,y:p.y, tx:p.x,ty:p.y,
+  v:rand(.18,.5), conf:rand(.7,.95), moving:true, idle:0, hue:[150,165,135][i%3], trail:[]
+};}
+let humans=[];
+function setCount(n){while(humans.length<n)humans.push(makeHuman(humans.length));humans.length=n;}
+setCount(3);
+let nextChange=0;
+
+let motionIdx=0, pps=0, t0=performance.now();
+
+function step(dt,now){
+  let totalSpeed=0;
+  for(const h of humans){
+    const dx=h.tx-h.x, dy=h.ty-h.y, d=Math.hypot(dx,dy);
+    if(d<0.12){ // reached waypoint -> idle then pick new
+      h.moving=false; h.idle-=dt;
+      if(h.idle<=0){const w=waypoint();h.tx=w.x;h.ty=w.y;h.moving=true;h.v=rand(.18,.5);}
+    }else{
+      h.idle=rand(.6,2.2);
+      const s=h.v*dt; h.x+=dx/d*s; h.y+=dy/d*s; totalSpeed+=h.v;
+    }
+    h.x=clamp(h.x,.3,W-.3); h.y=clamp(h.y,.3,H-.3);
+    h.conf=clamp(h.conf+rand(-.03,.03),.55,.98);
+    h.trail.push({x:h.x,y:h.y}); if(h.trail.length>40)h.trail.shift();
+  }
+  motionIdx=motionIdx*0.9+ (totalSpeed/Math.max(1,humans.length))*0.1*2;
+  pps=Math.round(rand(180,260)+motionIdx*120);
+  // occasionally change how many people are "seen"
+  if(now>nextChange){nextChange=now+rand(7000,15000);setCount(Math.round(rand(2,4)));}
+}
+
+// ---------- floorplan render ----------
+const fc=$('floor'); let FC,FW,FH;
+function drawFloor(now){
+  [FC,FW,FH]=fit(fc); const c=FC;
+  const pad=24, sx=(FW-pad*2)/W, sy=(FH-pad*2)/H, s=Math.min(sx,sy);
+  const ox=(FW-W*s)/2, oy=(FH-H*s)/2;
+  const X=x=>ox+x*s, Y=y=>oy+y*s;
+  c.clearRect(0,0,FW,FH);
+  // grid
+  c.strokeStyle="rgba(41,243,195,.06)"; c.lineWidth=1;
+  for(let x=0;x<=W;x++){c.beginPath();c.moveTo(X(x),Y(0));c.lineTo(X(x),Y(H));c.stroke();}
+  for(let y=0;y<=H;y++){c.beginPath();c.moveTo(X(0),Y(y));c.lineTo(X(W),Y(y));c.stroke();}
+  // room labels
+  c.fillStyle="rgba(63,111,104,.7)"; c.font="11px ui-monospace"; c.textAlign="left";
+  for(const r of ROOMS)c.fillText(r.n.toUpperCase(),X(r.x)+6,Y(r.y)+16);
+  // walls
+  c.strokeStyle="#1f5a52"; c.lineWidth=3; c.lineCap="round";
+  c.shadowBlur=8; c.shadowColor="rgba(41,243,195,.4)";
+  for(const w of WALLS){c.beginPath();c.moveTo(X(w[0]),Y(w[1]));c.lineTo(X(w[2]),Y(w[3]));c.stroke();}
+  c.shadowBlur=0;
+  // signal rays router->human (these visibly cross walls = "through wall")
+  for(const h of humans){
+    const g=c.createLinearGradient(X(ROUTER.x),Y(ROUTER.y),X(h.x),Y(h.y));
+    g.addColorStop(0,"rgba(41,243,195,.45)");g.addColorStop(1,"rgba(55,224,106,.05)");
+    c.strokeStyle=g; c.lineWidth=1; c.setLineDash([5,6]);
+    c.lineDashOffset=-(now/40)%11;
+    c.beginPath();c.moveTo(X(ROUTER.x),Y(ROUTER.y));c.lineTo(X(h.x),Y(h.y));c.stroke();
+  }
+  c.setLineDash([]);
+  // router + expanding pulse
+  const pr=((now/12)%140)/140;
+  c.strokeStyle=`rgba(41,243,195,${(1-pr)*.5})`; c.lineWidth=2;
+  c.beginPath();c.arc(X(ROUTER.x),Y(ROUTER.y),6+pr*70,0,TAU);c.stroke();
+  c.fillStyle=var0("--cyan"); c.shadowBlur=14;c.shadowColor=var0("--cyan");
+  c.beginPath();c.arc(X(ROUTER.x),Y(ROUTER.y),5,0,TAU);c.fill(); c.shadowBlur=0;
+  c.fillStyle="#7fe9cf";c.font="9px ui-monospace";c.fillText("ROUTER",X(ROUTER.x)+9,Y(ROUTER.y)+3);
+  // humans
+  for(const h of humans){
+    // trail
+    for(let i=0;i<h.trail.length;i++){const p=h.trail[i],a=i/h.trail.length*.4;
+      c.fillStyle=`hsla(${h.hue},80%,55%,${a})`;c.beginPath();c.arc(X(p.x),Y(p.y),2,0,TAU);c.fill();}
+    const col=`hsl(${h.hue},85%,${h.moving?60:48}%)`;
+    c.shadowBlur=18;c.shadowColor=col;c.fillStyle=col;
+    c.beginPath();c.arc(X(h.x),Y(h.y),7,0,TAU);c.fill();
+    c.shadowBlur=0;c.fillStyle="#04080a";c.font="bold 8px ui-monospace";c.textAlign="center";
+    c.fillText("☻",X(h.x),Y(h.y)+3);
+    c.fillStyle=col;c.textAlign="left";c.font="9px ui-monospace";
+    c.fillText(`${h.id} ${(h.conf*100|0)}%`,X(h.x)+10,Y(h.y)-7);
+  }
+}
+function var0(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+
+// ---------- radar render ----------
+const rc=$('radar'); let sweep=0;
+function drawRadar(now,dt){
+  const [c,w,h]=fit(rc); const cx=w/2,cy=h/2, R=Math.min(w,h)/2-14;
+  c.clearRect(0,0,w,h);
+  // rings
+  c.strokeStyle="rgba(41,243,195,.18)";c.lineWidth=1;
+  for(let i=1;i<=4;i++){c.beginPath();c.arc(cx,cy,R*i/4,0,TAU);c.stroke();}
+  c.beginPath();c.moveTo(cx-R,cy);c.lineTo(cx+R,cy);c.moveTo(cx,cy-R);c.lineTo(cx,cy+R);c.stroke();
+  // range labels
+  c.fillStyle="rgba(63,111,104,.8)";c.font="8px ui-monospace";c.textAlign="left";
+  for(let i=1;i<=4;i++)c.fillText((i*2.25).toFixed(1)+"m",cx+4,cy-R*i/4+10);
+  // sweep
+  sweep=(sweep+dt*1.6)%TAU;
+  const grad=c.createConicGradient?c.createConicGradient(sweep,cx,cy):null;
+  c.save();c.translate(cx,cy);
+  for(let i=0;i<48;i++){const a=sweep-i*0.022;
+    c.strokeStyle=`rgba(55,224,106,${.32*(1-i/48)})`;c.lineWidth=2;
+    c.beginPath();c.moveTo(0,0);c.lineTo(Math.cos(a)*R,Math.sin(a)*R);c.stroke();}
+  c.restore();
+  // blips = humans mapped to polar around router
+  const maxd=Math.hypot(W,H);
+  for(const hm of humans){
+    const dx=hm.x-ROUTER.x, dy=hm.y-ROUTER.y, d=Math.hypot(dx,dy);
+    const ang=Math.atan2(dy,dx), rr=clamp(d/9,0,1)*R;
+    const bx=cx+Math.cos(ang)*rr, by=cy+Math.sin(ang)*rr;
+    // brightness from how recently sweep passed
+    let da=(sweep-ang)%TAU; if(da<0)da+=TAU; const fade=clamp(1-da/TAU*1.3,0,1);
+    const col=`hsl(${hm.hue},90%,60%)`;
+    c.globalAlpha=0.35+fade*0.65; c.shadowBlur=14;c.shadowColor=col;c.fillStyle=col;
+    c.beginPath();c.arc(bx,by,5+fade*3,0,TAU);c.fill();
+    c.globalAlpha=1;c.shadowBlur=0;
+    c.strokeStyle=`hsla(${hm.hue},90%,60%,${.25+fade*.4})`;c.lineWidth=1;
+    c.beginPath();c.arc(bx,by,10,0,TAU);c.stroke();
+    c.fillStyle=col;c.font="8px ui-monospace";c.fillText(hm.id,bx+9,by+3);
+  }
+  c.globalAlpha=1;
+  // center
+  c.fillStyle=var0("--cyan");c.beginPath();c.arc(cx,cy,3,0,TAU);c.fill();
+}
+
+// ---------- CSI waveform ----------
+const csi=$('csi'); const buf=new Array(220).fill(0);
+function drawCSI(){const [c,w,h]=fit(csi);c.clearRect(0,0,w,h);
+  buf.push(Math.sin(performance.now()/120)*0.3 + (Math.random()-.5)*(0.15+motionIdx*0.9));
+  if(buf.length>220)buf.shift();
+  c.strokeStyle="rgba(41,243,195,.10)";for(let y=0;y<h;y+=h/4){c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke();}
+  c.beginPath();c.lineWidth=1.6;c.strokeStyle=var0("--green");c.shadowBlur=8;c.shadowColor=var0("--green");
+  for(let i=0;i<buf.length;i++){const x=i/(buf.length-1)*w, y=h/2 - buf[i]*h*0.42;
+    i?c.lineTo(x,y):c.moveTo(x,y);} c.stroke();c.shadowBlur=0;
+}
+
+// ---------- panels ----------
+function drawStats(){
+  $('count').textContent=humans.length;
+  $('rssi').textContent=(-42 - (motionIdx*6|0))+" dBm";
+  $('motion').textContent=motionIdx.toFixed(2);
+  $('pps').textContent=pps;
+  const box=$('targets'); box.innerHTML="";
+  for(const h of humans){
+    const d=Math.hypot(h.x-ROUTER.x,h.y-ROUTER.y);
+    const el=document.createElement('div'); el.className="t"+(h.moving?" moving":"");
+    el.innerHTML=`<div class="top"><span>${h.id}</span><span>${h.moving?"MOVING":"STILL"}</span></div>
+      <div class="row"><span>room</span><b>${roomAt(h.x,h.y)}</b></div>
+      <div class="row"><span>range</span><b>${d.toFixed(2)} m</b></div>
+      <div class="row"><span>confidence</span><b>${(h.conf*100).toFixed(0)}%</b></div>`;
+    box.appendChild(el);
+  }
+}
+
+// ---------- clock + ticker ----------
+function tick(){const d=new Date();$('clock').textContent=d.toTimeString().slice(0,8);}
+$('ticker').innerHTML='WIFI&#8209;RADAR v0.9 · <b class="c">SIMULATED</b> through&#8209;wall sensing demo &nbsp;•&nbsp; '+
+ 'principle: moving bodies perturb WiFi multipath; <b class="g">CSI</b> amplitude/phase across subcarriers reveals presence &amp; motion &nbsp;•&nbsp; '+
+ 'real implementations: Nexmon&#8209;CSI, ESP32&#8209;CSI, Intel 5300 · research: <b class="a">DensePose&#8209;From&#8209;WiFi</b> (CMU 2023) &nbsp;•&nbsp; '+
+ 'no cameras, no hardware — every blip here is generated in your browser &nbsp;•&nbsp; ';
+
+// ---------- loop ----------
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  step(dt,now);
+  drawFloor(now); drawRadar(now,dt); drawCSI(); drawStats();
+  requestAnimationFrame(loop);
+}
+tick(); setInterval(tick,1000);
+requestAnimationFrame(loop);
+window.addEventListener('resize',()=>{});
+</script>
+</body>
+</html>
